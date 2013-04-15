@@ -296,12 +296,12 @@ final class HListOps[L <: HList](l : L) {
   /**
    * Maps a higher rank function across this `HList`.
    */
-  def map[HF](f : HF)(implicit mapper : Mapper[HF, L]) : mapper.Out = mapper(l)
+  def map(f : Poly)(implicit mapper : Mapper[f.type, L]) : mapper.Out = mapper(l)
 
   /**
    * Flatmaps a higher rank function across this `HList`.
    */
-  def flatMap[HF](f : HF)(implicit mapper : FlatMapper[HF, L]) : mapper.Out = mapper(l)
+  def flatMap(f : Poly)(implicit mapper : FlatMapper[f.type, L]) : mapper.Out = mapper(l)
 
   /**
    * Replaces each element of this `HList` with a constant value.
@@ -313,33 +313,33 @@ final class HListOps[L <: HList](l : L) {
    * `op`. Available only if there is evidence that the result type of `f` at each element conforms to the argument
    * type of ''op''.
    */
-  def foldMap[R, HF](z : R)(f : HF)(op : (R, R) => R)(implicit folder : MapFolder[L, R, HF]) : R = folder(l, z, op)
+  def foldMap[R](z : R)(f : Poly)(op : (R, R) => R)(implicit folder : MapFolder[L, R, f.type]) : R = folder(l, z, op)
   
   /**
    * Computes a left fold over this `HList` using the polymorphic binary combining operator `op`. Available only if
    * there is evidence `op` can consume/produce all the partial results of the appropriate types.
    */
-  def foldLeft[R, HF](z : R)(op : HF)(implicit folder : LeftFolder[L, R, HF]) : folder.Out = folder(l, z)
+  def foldLeft[R](z : R)(op : Poly)(implicit folder : LeftFolder[L, R, op.type]) : folder.Out = folder(l, z)
   
   /**
    * Computes a right fold over this `HList` using the polymorphic binary combining operator `op`. Available only if
    * there is evidence `op` can consume/produce all the partial results of the appropriate types.
    */
-  def foldRight[R, HF](z : R)(op : HF)(implicit folder : RightFolder[L, R, HF]) : folder.Out = folder(l, z)
+  def foldRight[R](z : R)(op : Poly)(implicit folder : RightFolder[L, R, op.type]) : folder.Out = folder(l, z)
   
   /**
    * Computes a left reduce over this `HList` using the polymorphic binary combining operator `op`. Available only if
    * there is evidence that this `HList` has at least one element and that `op` can consume/produce all the partial
    * results of the appropriate types.
    */
-  def reduceLeft[HF](op : HF)(implicit reducer : LeftReducer[L, HF]) : reducer.Out = reducer(l)
+  def reduceLeft(op : Poly)(implicit reducer : LeftReducer[L, op.type]) : reducer.Out = reducer(l)
   
   /**
    * Computes a right reduce over this `HList` using the polymorphic binary combining operator `op`. Available only if
    * there is evidence that this `HList` has at least one element and that `op` can consume/produce all the partial
    * results of the appropriate types.
    */
-  def reduceRight[HF](op : HF)(implicit reducer : RightReducer[L, HF]) : reducer.Out = reducer(l)
+  def reduceRight(op : Poly)(implicit reducer : RightReducer[L, op.type]) : reducer.Out = reducer(l)
   
   /**
    * Zips this `HList` with its argument `HList` returning an `HList` of pairs.
@@ -469,7 +469,7 @@ trait IsHCons[L <: HList] {
 }
 
 object IsHCons {
-  implicit def hlistIsHCons[H0, T0 <: HList] = new IsHCons[H0 :: T0] {
+  implicit def apply[H0, T0 <: HList] = new IsHCons[H0 :: T0] {
     type H = H0
     type T = T0
   
@@ -585,6 +585,10 @@ trait HKernel {
   type L <: HList
   type Mapped[G[_]] <: HList
   type Length <: Nat
+  
+  def fhead[F[_]](l : Mapped[F])(implicit c: IsHCons[Mapped[F]]) : c.H = c.head(l)
+
+  def ftail[F[_]](l : Mapped[F])(implicit c: IsHCons[Mapped[F]]) : c.T = c.tail(l)
 
   def map[F[_], G[_]](f: F ~> G, l: Mapped[F]): Mapped[G]
 
@@ -592,7 +596,7 @@ trait HKernel {
 
   def toList[C](l: Mapped[Const[C]#λ]): List[C]
 
-  def length: Int
+  def length : Length
 }
 
 trait HNilHKernel extends HKernel {
@@ -607,8 +611,8 @@ trait HNilHKernel extends HKernel {
   def tabulate[C](from: Int)(f: Int => C): HNil = HNil
 
   def toList[C](l: HNil): List[C] = Nil
-
-  def length: Int = 0
+  
+  def length = _0
 }
 
 case object HNilHKernel extends HNilHKernel
@@ -617,14 +621,16 @@ final case class HConsHKernel[H, T <: HKernel](tail: T) extends HKernel {
   type L = H :: tail.L
   type Mapped[G[_]] = G[H] :: tail.Mapped[G]
   type Length = Succ[tail.Length]
+  
+  implicit val isHCons : IsHCons[L] = IsHCons[H, tail.L]
 
   def map[F[_], G[_]](f: F ~> G, l: F[H] :: tail.Mapped[F]): G[H] :: tail.Mapped[G] = f(l.head) :: tail.map(f, l.tail)
 
   def tabulate[C](from: Int)(f: Int => C): C :: tail.Mapped[Const[C]#λ] = f(from) :: tail.tabulate(from+1)(f)
 
   def toList[C](l: C :: tail.Mapped[Const[C]#λ]): List[C] = l.head :: tail.toList(l.tail)
-
-  def length: Int = 1+tail.length
+  
+  def length = Succ[tail.Length]()
 }
 
 object HKernel {
@@ -633,17 +639,28 @@ object HKernel {
 }
 
 trait HKernelAux[L <: HList] {
+  type F[_]
   type Out <: HKernel
   def apply(): Out
 }
 
-object HKernelAux {
-  implicit def mkHNilHKernel = new HKernelAux[HNil] {
+trait LowPriorityHKernelAux {
+  implicit def mkHListHKernelAuxId[H, T <: HList](implicit ct: HKernelAux[T]) = new HKernelAux[H :: T] {
+    type F[X] = Id[X]
+    type Out = HConsHKernel[H, ct.Out]
+    def apply() = HConsHKernel[H, ct.Out](ct())
+  }
+}
+
+object HKernelAux extends LowPriorityHKernelAux {
+  implicit def mkHNilHKernelAux = new HKernelAux[HNil] {
+    type F[X] = Nothing
     type Out = HNilHKernel
     def apply() = HNilHKernel
   }
 
-  implicit def mkHListHKernel[H, T <: HList](implicit ct: HKernelAux[T]) = new HKernelAux[H :: T] {
+  implicit def mkHListHKernelAux[F0[_], H, T <: HList](implicit ct: HKernelAux[T]) = new HKernelAux[F0[H] :: T] {
+    type F[X] = F0[X]
     type Out = HConsHKernel[H, ct.Out]
     def apply() = HConsHKernel[H, ct.Out](ct())
   }

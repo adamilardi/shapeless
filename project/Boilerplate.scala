@@ -268,7 +268,7 @@ object Boilerplate {
       val caseArgs = ((0 until arity) map (n => (n+'a').toChar)).mkString("(", " :: ", " :: HNil)")
       
       ("""|
-          |  implicit def inst"""+arity+"""[Fn <: Poly, """+typeArgs+"""](fn : Fn)(implicit cse : fn.Case["""+hlistType+"""]) : """+fnType+""" = """+fnArgs+""" => cse"""+caseArgs+"""
+          |  implicit def inst"""+arity+"""["""+typeArgs+"""](fn : Poly)(implicit cse : fn.Case["""+hlistType+"""]) : """+fnType+""" = """+fnArgs+""" => cse"""+caseArgs+"""
           |""").stripMargin
     }
 

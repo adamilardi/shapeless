@@ -119,7 +119,7 @@ class PolyTests {
     assertEquals((List(23), List("foo")), a2)
 
     // Use as polymorphic function values with type specific cases
-    def pairApply2[F <: Poly](f : F)(implicit ci : f.Case1[Int], cs : f.Case1[String]) = (f(23), f("foo"))
+    def pairApply2(f : Poly)(implicit ci : f.Case1[Int], cs : f.Case1[String]) = (f(23), f("foo"))
     
     val a4 = pairApply2(singleton)
     typed[(Set[Int], Set[String])](a4)
@@ -166,7 +166,7 @@ class PolyTests {
     typed[Int :: Int :: Int :: Int :: Int :: Int :: HNil](l9)
     assertEquals(1 :: 3 :: 4 :: 4 :: 4 :: 1 :: HNil, l9)
 
-    def hlistMap[F <: Poly](f : F)(implicit  mapper : Mapper[F, Int :: String :: HNil]) =
+    def hlistMap(f : Poly)(implicit  mapper : Mapper[f.type, Int :: String :: HNil]) =
       (23 :: "foo" :: HNil) map f
       
     val hm1 = hlistMap(singleton)
@@ -242,4 +242,25 @@ class PolyTests {
     typed[String :: Int :: String :: Int :: HNil](blis)
     assertEquals("1" :: 2 :: "3" :: 4 :: HNil, blis)
   }
+  
+  @Test
+  def testLift {
+    import LiftFns._
+
+    val l = List(23) :: List("foo") :: List(true) :: HNil
+    
+    val l1 = l.map(m _)
+    typed[Option[Int] :: Option[String] :: Option[Boolean] :: HNil](l1)
+    
+    val l3 = l.map(Poly { def apply[T](l: List[T]) = l.headOption })
+    typed[Option[Int] :: Option[String] :: Option[Boolean] :: HNil](l3)
+
+    val l4 = l.map(Poly { def apply[T](l: List[T]) = l.toVector })
+    typed[Vector[Int] :: Vector[String] :: Vector[Boolean] :: HNil](l4)
+  }
 }
+
+object LiftFns {
+  def m[T](t : List[T]) = t.headOption
+}
+
